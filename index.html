@@ -24,6 +24,7 @@
                    border-radius:7px; padding:7px 11px; font-size:14px; }
   button { cursor:pointer; }
   button.on { background:var(--accent); color:#031018; border-color:var(--accent); font-weight:600; }
+  button:disabled { opacity:.4; cursor:not-allowed; }
   .dash { color:var(--muted); margin:0 8px; }
   .panel { background:var(--panel); border:1px solid var(--line);
            border-radius:10px; padding:18px; margin-bottom:24px; }
@@ -35,6 +36,7 @@
   th.sorted::after { content:" \25BC"; color:var(--accent); }
   tbody tr:hover { background:#1d242c; }
   .num { font-variant-numeric:tabular-nums; }
+  h3 { margin:0 0 12px; }
 </style>
 </head>
 <body>
@@ -49,6 +51,10 @@
     <div class="ctl"><label>Metric</label><select id="metric"></select></div>
     <div class="ctl"><label>Years</label>
       <select id="yFrom"></select><span class="dash">to</span><select id="yTo"></select>
+    </div>
+    <div class="ctl"><label>Measure</label>
+      <button id="mTotal" class="on">Total</button>
+      <button id="mAvg">Per pick</button>
     </div>
     <div class="ctl"><label>View</label>
       <button id="vTotal" class="on">Totals</button>
@@ -68,7 +74,7 @@
   </div>
 
   <div class="panel">
-    <h3 style="margin:0 0 12px">Full table <span class="sub" id="tableNote"></span></h3>
+    <h3>Full table <span class="sub" id="tableNote"></span></h3>
     <table id="tbl">
       <thead><tr>
         <th data-k="team">Team</th>
@@ -77,6 +83,20 @@
         <th data-k="goals">Goals</th>
         <th data-k="assists">Assists</th>
         <th data-k="points" class="sorted">Points</th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <div class="panel">
+    <h3>Draft picks by round <span class="sub" id="picksNote"></span></h3>
+    <table id="ptbl">
+      <thead><tr>
+        <th data-k="team">Team</th>
+        <th data-k="1">R1</th><th data-k="2">R2</th><th data-k="3">R3</th>
+        <th data-k="4">R4</th><th data-k="5">R5</th><th data-k="6">R6</th>
+        <th data-k="7">R7</th>
+        <th data-k="total" class="sorted">Total</th>
       </tr></thead>
       <tbody></tbody>
     </table>
@@ -90,21 +110,25 @@ const ROUND_COLORS = ["#4ea1ff","#46c98b","#f2c14e","#ef7d57","#b06bd6",
 const $ = s => document.querySelector(s);
 // row layout: [teamIdx, year, round, picks, gp, goals, assists, points]
 const COL = {picks:3, gp:4, goals:5, assists:6, points:7};
+const TH_BASE = {team:"Team", picks:"Picks", gp:"GP", goals:"Goals",
+                 assists:"Assists", points:"Points"};
 
-let view = "total";        // total | stack
+let view = "total";        // total | stack  (bar layout)
+let measure = "total";     // total | avg    (sum vs per-pick)
 let metric = "points";
 let roundFilter = "all";
 let yFrom = DATA.years[0];
 let yTo = DATA.years[DATA.years.length - 1];
 let sortKey = "points";
-let chart, teams;          // teams = current aggregation
+let psortKey = "total";    // sort key for picks-by-round table
+let chart, teams, currentList;
 
 function blank() { return {picks:0, gp:0, goals:0, assists:0, points:0}; }
 
 // Aggregate rows within the selected year range into per-team totals + per-round.
 function computeTeams() {
   const lo = Math.min(yFrom, yTo), hi = Math.max(yFrom, yTo);
-  const acc = DATA.teams.map((name, i) => ({
+  const acc = DATA.teams.map(name => ({
     team: name,
     total: blank(),
     rounds: Object.fromEntries([1,2,3,4,5,6,7].map(r => [String(r), blank()])),
@@ -115,50 +139,106 @@ function computeTeams() {
     const t = acc[row[0]], r = t.rounds[String(row[2])];
     for (const k in COL) { t.total[k] += row[COL[k]]; r[k] += row[COL[k]]; }
   }
-  // drop teams with no picks in this range (e.g. Vegas before 2017)
-  teams = acc.filter(t => t.total.picks > 0);
+  teams = acc.filter(t => t.total.picks > 0);  // only franchises active in range
 }
 
-function valueFor(t) {
-  return roundFilter === "all" ? t.total[metric] : t.rounds[roundFilter][metric];
-}
+function cellOf(t) { return roundFilter === "all" ? t.total : t.rounds[roundFilter]; }
+// value of metric key k for a team under the current measure
 function rowStat(t, k) {
-  return roundFilter === "all" ? t.total[k] : t.rounds[roundFilter][k];
+  const c = cellOf(t);
+  if (k === "picks") return c.picks;
+  if (measure === "avg") return c.picks > 0 ? c[k] / c.picks : 0;
+  return c[k];
+}
+function valueFor(t) { return rowStat(t, metric); }
+
+function fmt(v, isPicks) {
+  if (isPicks) return v.toLocaleString();
+  if (measure === "avg")
+    return v.toLocaleString(undefined, {minimumFractionDigits:1, maximumFractionDigits:1});
+  return Math.round(v).toLocaleString();
 }
 function yearLabel() {
   const lo = Math.min(yFrom, yTo), hi = Math.max(yFrom, yTo);
   return lo === hi ? String(lo) : lo + "–" + hi;
 }
+function scopeNote() {
+  return yearLabel() + ", " + (roundFilter === "all" ? "all rounds" : "round " + roundFilter)
+       + (measure === "avg" ? ", per pick" : "");
+}
 
 function renderChart() {
-  const labels = [], list = teams.slice();
-  const stacked = (view === "stack" && roundFilter === "all");
-  list.sort((a, b) => valueFor(b) - valueFor(a));
-  list.forEach(t => labels.push(t.team));
+  const list = teams.slice();
+  const allRounds = roundFilter === "all";
+  const stacked = view === "stack" && allRounds;   // one bar/team, segments per round
+  const avg = measure === "avg";
+  const segVal = (c) => avg ? (c.picks > 0 ? c[metric] / c.picks : 0) : c[metric];
+  const stackSum = (t) => [1,2,3,4,5,6,7].reduce((s, r) => s + segVal(t.rounds[String(r)]), 0);
+  // sort by visible bar length: stacked sum when stacked, else the single value
+  const sortVal = stacked ? stackSum : valueFor;
+  list.sort((a, b) => sortVal(b) - sortVal(a));
+  currentList = list;
+  const labels = list.map(t => t.team);
+  const ml = DATA.metricLabels[metric];
 
   let datasets;
   if (stacked) {
     datasets = [];
     for (let r = 1; r <= 7; r++) {
+      const rk = String(r);
       datasets.push({
         label: "Round " + r,
-        data: list.map(t => t.rounds[String(r)][metric]),
+        roundNo: r,
+        // Total: round's metric total. Per-pick: round's own per-pick average.
+        data: list.map(t => {
+          const c = t.rounds[rk];
+          return avg ? (c.picks > 0 ? c[metric] / c.picks : 0) : c[metric];
+        }),
         backgroundColor: ROUND_COLORS[r - 1],
         borderWidth: 0,
       });
     }
   } else {
     datasets = [{
-      label: DATA.metricLabels[metric],
+      label: ml,
       data: list.map(t => valueFor(t)),
       backgroundColor: "#4ea1ff",
       borderWidth: 0,
     }];
   }
 
-  const title = DATA.metricLabels[metric] + " by team, " + yearLabel()
-              + (roundFilter === "all" ? ", all rounds" : ", round " + roundFilter)
-              + (stacked ? " (stacked by round)" : "");
+  const mlabel = ml + (avg ? " per pick" : "");
+  const title = mlabel + " by team, " + yearLabel()
+              + (allRounds ? ", all rounds" : ", round " + roundFilter)
+              + (stacked ? (avg ? " (stacked: each round's own per-pick avg)"
+                                : " (stacked by round)") : "");
+
+  let tooltip;
+  if (stacked) {
+    tooltip = { callbacks: { label: (ctx) => {
+      const c = currentList[ctx.dataIndex].rounds[String(ctx.dataset.roundNo)];
+      const picks = "(" + c.picks + " pick" + (c.picks === 1 ? "" : "s") + ")";
+      if (avg) {
+        const a = c.picks > 0 ? c[metric] / c.picks : 0;
+        return "Round " + ctx.dataset.roundNo + ": "
+             + a.toLocaleString(undefined, {minimumFractionDigits:1, maximumFractionDigits:1})
+             + " per pick " + picks;
+      }
+      return "Round " + ctx.dataset.roundNo + ": "
+           + c[metric].toLocaleString() + " " + ml.toLowerCase() + " " + picks;
+    } } };
+  } else {
+    tooltip = { callbacks: { label: (ctx) => {
+      const c = cellOf(currentList[ctx.dataIndex]);
+      const a = c.picks > 0 ? c[metric] / c.picks : 0;
+      return [
+        ml + ": " + c[metric].toLocaleString(),
+        "Picks: " + c.picks,
+        "Per pick: " + a.toLocaleString(undefined, {minimumFractionDigits:1, maximumFractionDigits:1}) + " " + ml.toLowerCase(),
+      ];
+    } } };
+  }
+
   const cfg = {
     type: "bar",
     data: { labels, datasets },
@@ -173,6 +253,7 @@ function renderChart() {
       plugins: {
         legend: { display: stacked, labels: { color: "#cdd6df" } },
         title: { display: true, color: "#e8edf2", font: { size: 15 }, text: title },
+        tooltip,
       },
     },
   };
@@ -188,50 +269,92 @@ function renderTable() {
                        : rowStat(b, sortKey) - rowStat(a, sortKey));
   list.forEach(t => {
     const tr = document.createElement("tr");
-    const cells = [t.team, rowStat(t, "picks"), rowStat(t, "gp"),
-                   rowStat(t, "goals"), rowStat(t, "assists"), rowStat(t, "points")];
-    cells.forEach((c, i) => {
+    const cells = [["team", t.team], ["picks", rowStat(t, "picks")],
+                   ["gp", rowStat(t, "gp")], ["goals", rowStat(t, "goals")],
+                   ["assists", rowStat(t, "assists")], ["points", rowStat(t, "points")]];
+    cells.forEach(([k, v], i) => {
       const td = document.createElement("td");
       if (i > 0) td.className = "num";
-      td.textContent = i === 0 ? c : c.toLocaleString();
+      td.textContent = i === 0 ? v : fmt(v, k === "picks");
       tr.appendChild(td);
     });
     tb.appendChild(tr);
   });
-  $("#tableNote").textContent = "(" + yearLabel() + ", "
-    + (roundFilter === "all" ? "all rounds" : "round " + roundFilter) + ")";
-  document.querySelectorAll("#tbl th").forEach(th =>
-    th.classList.toggle("sorted", th.dataset.k === sortKey));
+  $("#tableNote").textContent = "(" + scopeNote() + ")";
+  document.querySelectorAll("#tbl th").forEach(th => {
+    const k = th.dataset.k;
+    const suffix = (measure === "avg" && k !== "team" && k !== "picks") ? " /pk" : "";
+    th.textContent = TH_BASE[k] + suffix;
+    th.classList.toggle("sorted", k === sortKey);
+  });
 }
 
-function renderAll() { computeTeams(); renderChart(); renderTable(); }
+function renderPicksTable() {
+  const tb = $("#ptbl tbody");
+  tb.innerHTML = "";
+  const list = teams.slice().sort((a, b) =>
+    psortKey === "team" ? a.team.localeCompare(b.team)
+    : psortKey === "total" ? b.total.picks - a.total.picks
+    : b.rounds[psortKey].picks - a.rounds[psortKey].picks);
+  list.forEach(t => {
+    const tr = document.createElement("tr");
+    const tdName = document.createElement("td");
+    tdName.textContent = t.team; tr.appendChild(tdName);
+    for (let r = 1; r <= 7; r++) {
+      const td = document.createElement("td");
+      td.className = "num";
+      const p = t.rounds[String(r)].picks;
+      td.textContent = p ? p : "·";
+      if (!p) td.style.color = "#4a545e";
+      tr.appendChild(td);
+    }
+    const tot = document.createElement("td");
+    tot.className = "num"; tot.style.fontWeight = "600";
+    tot.textContent = t.total.picks; tr.appendChild(tot);
+    tb.appendChild(tr);
+  });
+  $("#picksNote").textContent = "(" + yearLabel() + ")";
+  document.querySelectorAll("#ptbl th").forEach(th =>
+    th.classList.toggle("sorted", th.dataset.k === psortKey));
+}
+
+function renderViews() { renderChart(); renderTable(); renderPicksTable(); }
+function renderAll() { computeTeams(); renderViews(); }
+
+// stacked works for both measures now (segments = round total, or round own avg)
+function syncStackButton() {}
 
 // ---- build controls ----
 const msel = $("#metric");
-DATA.metrics.forEach(m => {
-  const o = document.createElement("option");
-  o.value = m; o.textContent = DATA.metricLabels[m]; msel.appendChild(o);
-});
+DATA.metrics.forEach(m => msel.appendChild(new Option(DATA.metricLabels[m], m)));
 msel.value = "points";
 const yf = $("#yFrom"), yt = $("#yTo");
-DATA.years.forEach(y => {
-  yf.appendChild(new Option(y, y));
-  yt.appendChild(new Option(y, y));
-});
+DATA.years.forEach(y => { yf.appendChild(new Option(y, y)); yt.appendChild(new Option(y, y)); });
 yf.value = String(yFrom); yt.value = String(yTo);
 
 msel.addEventListener("change", e => { metric = e.target.value; renderChart(); });
 yf.addEventListener("change", e => { yFrom = +e.target.value; renderAll(); });
 yt.addEventListener("change", e => { yTo = +e.target.value; renderAll(); });
-$("#round").addEventListener("change", e => { roundFilter = e.target.value; renderAll(); });
+$("#round").addEventListener("change", e => { roundFilter = e.target.value; renderViews(); });
+$("#mTotal").addEventListener("click", () => {
+  measure = "total"; $("#mTotal").classList.add("on"); $("#mAvg").classList.remove("on");
+  syncStackButton(); renderViews();
+});
+$("#mAvg").addEventListener("click", () => {
+  measure = "avg"; $("#mAvg").classList.add("on"); $("#mTotal").classList.remove("on");
+  syncStackButton(); renderViews();
+});
 $("#vTotal").addEventListener("click", () => {
   view = "total"; $("#vTotal").classList.add("on"); $("#vStack").classList.remove("on"); renderChart();
 });
 $("#vStack").addEventListener("click", () => {
+  if ($("#vStack").disabled) return;
   view = "stack"; $("#vStack").classList.add("on"); $("#vTotal").classList.remove("on"); renderChart();
 });
 document.querySelectorAll("#tbl th").forEach(th =>
   th.addEventListener("click", () => { sortKey = th.dataset.k; renderTable(); }));
+document.querySelectorAll("#ptbl th").forEach(th =>
+  th.addEventListener("click", () => { psortKey = th.dataset.k; renderPicksTable(); }));
 
 renderAll();
 </script>
