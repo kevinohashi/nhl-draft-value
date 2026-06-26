@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NHL Draft Value by Team (2006-2025)</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root { --bg:#0f1216; --panel:#171c22; --ink:#e8edf2; --muted:#8a97a6;
+          --line:#283139; --accent:#4ea1ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif; }
+  header { padding:24px 28px 8px; }
+  h1 { margin:0 0 4px; font-size:22px; }
+  .sub { color:var(--muted); font-size:14px; }
+  .wrap { padding:16px 28px 60px; max-width:1180px; margin:0 auto; }
+  .controls { display:flex; gap:18px; flex-wrap:wrap; align-items:center;
+              background:var(--panel); border:1px solid var(--line);
+              border-radius:10px; padding:14px 18px; margin:14px 0 22px; }
+  .controls label { color:var(--muted); margin-right:8px; }
+  select, button { background:#0d1116; color:var(--ink); border:1px solid var(--line);
+                   border-radius:7px; padding:7px 11px; font-size:14px; }
+  button { cursor:pointer; }
+  button.on { background:var(--accent); color:#031018; border-color:var(--accent); font-weight:600; }
+  .panel { background:var(--panel); border:1px solid var(--line);
+           border-radius:10px; padding:18px; margin-bottom:24px; }
+  .chartbox { position:relative; height:760px; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { padding:8px 10px; text-align:right; border-bottom:1px solid var(--line); }
+  th:first-child, td:first-child { text-align:left; }
+  th { color:var(--muted); cursor:pointer; user-select:none; white-space:nowrap; }
+  th.sorted::after { content:" \25BC"; color:var(--accent); }
+  tbody tr:hover { background:#1d242c; }
+  .num { font-variant-numeric:tabular-nums; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Which teams drafted the most NHL production?</h1>
+  <div class="sub">NHL entry drafts 2006&ndash;2025 &middot; career NHL totals of every pick,
+  by drafting team (relocated franchises shown under their name at the time) &middot;
+  source: hockey-reference.com</div>
+</header>
+<div class="wrap">
+  <div class="controls">
+    <div><label>Metric</label><select id="metric"></select></div>
+    <div><label>View</label>
+      <button id="vTotal" class="on">Totals</button>
+      <button id="vStack">Stacked by round</button>
+    </div>
+    <div><label>Round filter</label><select id="round">
+      <option value="all">All rounds</option>
+      <option value="1">Round 1</option><option value="2">Round 2</option>
+      <option value="3">Round 3</option><option value="4">Round 4</option>
+      <option value="5">Round 5</option><option value="6">Round 6</option>
+      <option value="7">Round 7</option>
+    </select></div>
+  </div>
+
+  <div class="panel">
+    <div class="chartbox"><canvas id="chart"></canvas></div>
+  </div>
+
+  <div class="panel">
+    <h3 style="margin:0 0 12px">Full table <span class="sub" id="tableNote"></span></h3>
+    <table id="tbl">
+      <thead><tr>
+        <th data-k="team">Team</th>
+        <th data-k="picks">Picks</th>
+        <th data-k="gp">GP</th>
+        <th data-k="goals">Goals</th>
+        <th data-k="assists">Assists</th>
+        <th data-k="points" class="sorted">Points</th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const DATA = {"teams": [{"team": "Anaheim Ducks", "total": {"picks": 147, "gp": 18324, "goals": 2427, "assists": 4780, "points": 7207}, "rounds": {"1": {"picks": 26, "gp": 8752, "goals": 1436, "assists": 2704, "points": 4140}, "2": {"picks": 28, "gp": 4676, "goals": 520, "assists": 1181, "points": 1701}, "3": {"picks": 25, "gp": 1397, "goals": 36, "assists": 111, "points": 147}, "4": {"picks": 21, "gp": 1332, "goals": 149, "assists": 280, "points": 429}, "5": {"picks": 21, "gp": 1001, "goals": 180, "assists": 257, "points": 437}, "6": {"picks": 17, "gp": 711, "goals": 45, "assists": 157, "points": 202}, "7": {"picks": 9, "gp": 455, "goals": 61, "assists": 90, "points": 151}}}, {"team": "Arizona Coyotes", "total": {"picks": 86, "gp": 7726, "goals": 1405, "assists": 2228, "points": 3633}, "rounds": {"1": {"picks": 14, "gp": 3430, "goals": 811, "assists": 1223, "points": 2034}, "2": {"picks": 11, "gp": 1943, "goals": 258, "assists": 438, "points": 696}, "3": {"picks": 18, "gp": 762, "goals": 32, "assists": 75, "points": 107}, "4": {"picks": 9, "gp": 900, "goals": 165, "assists": 292, "points": 457}, "5": {"picks": 12, "gp": 664, "goals": 139, "assists": 200, "points": 339}, "6": {"picks": 10, "gp": 1, "goals": 0, "assists": 0, "points": 0}, "7": {"picks": 12, "gp": 26, "goals": 0, "assists": 0, "points": 0}}}, {"team": "Atlanta Thrashers", "total": {"picks": 37, "gp": 4482, "goals": 742, "assists": 1072, "points": 1814}, "rounds": {"1": {"picks": 5, "gp": 3162, "goals": 659, "assists": 860, "points": 1519}, "2": {"picks": 3, "gp": 94, "goals": 11, "assists": 12, "points": 23}, "3": {"picks": 4, "gp": 55, "goals": 2, "assists": 9, "points": 11}, "4": {"picks": 5, "gp": 808, "goals": 50, "assists": 135, "points": 185}, "5": {"picks": 5, "gp": 0, "goals": 0, "assists": 0, "points": 0}, "6": {"picks": 7, "gp": 9, "goals": 1, "assists": 0, "points": 1}, "7": {"picks": 8, "gp": 354, "goals": 19, "assists": 56, "points": 75}}}, {"team": "Boston Bruins", "total": {"picks": 119, "gp": 15118, "goals": 2922, "assists": 4634, "points": 7556}, "rounds": {"1": {"picks": 18, "gp": 6711, "goals": 1755, "assists": 2612, "points": 4367}, "2": {"picks": 19, "gp": 4052, "goals": 496, "assists": 927, "points": 1423}, "3": {"picks": 13, "gp": 2239, "goals": 493, "assists": 771, "points": 1264}, "4": {"picks": 15, "gp": 949, "goals": 107, "assists": 160, "points": 267}, "5": {"picks": 16, "gp": 418, "goals": 36, "assists": 56, "points": 92}, "6": {"picks": 20, "gp": 656, "goals": 32, "assists": 98, "points": 130}, "7": {"picks": 18, "gp": 93, "goals": 3, "assists": 10, "points": 13}}}, {"team": "Buffalo Sabres", "total": {"picks": 157, "gp": 19415, "goals": 2810, "assists": 4845, "points": 7655}, "rounds": {"1": {"picks": 26, "gp": 10717, "goals": 1812, "assists": 3193, "points": 5005}, "2": {"picks": 24, "gp": 3530, "goals": 378, "assists": 661, "points": 1039}, "3": {"picks": 21, "gp": 1262, "goals": 51, "assists": 186, "points": 237}, "4": {"picks": 19, "gp": 1634, "goals": 174, "assists": 302, "points": 476}, "5": {"picks": 22, "gp": 417, "goals": 11, "assists": 42, "points": 53}, "6": {"picks": 18, "gp": 1335, "goals": 261, "assists": 331, "points": 592}, "7": {"picks": 27, "gp": 520, "goals": 123, "assists": 130, "points": 253}}}, {"team": "Calgary Flames", "total": {"picks": 130, "gp": 11905, "goals": 2077, "assists": 3706, "points": 5783}, "rounds": {"1": {"picks": 20, "gp": 5231, "goals": 1215, "assists": 1708, "points": 2923}, "2": {"picks": 17, "gp": 1590, "goals": 203, "assists": 382, "points": 585}, "3": {"picks": 20, "gp": 911, "goals": 103, "assists": 403, "points": 506}, "4": {"picks": 18, "gp": 2841, "goals": 361, "assists": 983, "points": 1344}, "5": {"picks": 15, "gp": 335, "goals": 60, "assists": 74, "points": 134}, "6": {"picks": 19, "gp": 781, "goals": 132, "assists": 139, "points": 271}, "7": {"picks": 21, "gp": 216, "goals": 3, "assists": 17, "points": 20}}}, {"team": "Carolina Hurricanes", "total": {"picks": 155, "gp": 17053, "goals": 2802, "assists": 4486, "points": 7288}, "rounds": {"1": {"picks": 15, "gp": 6251, "goals": 1400, "assists": 1976, "points": 3376}, "2": {"picks": 28, "gp": 5760, "goals": 839, "assists": 1493, "points": 2332}, "3": {"picks": 25, "gp": 2010, "goals": 297, "assists": 446, "points": 743}, "4": {"picks": 25, "gp": 1691, "goals": 199, "assists": 459, "points": 658}, "5": {"picks": 17, "gp": 228, "goals": 26, "assists": 26, "points": 52}, "6": {"picks": 25, "gp": 129, "goals": 4, "assists": 16, "points": 20}, "7": {"picks": 20, "gp": 984, "goals": 37, "assists": 70, "points": 107}}}, {"team": "Chicago Blackhawks", "total": {"picks": 170, "gp": 16435, "goals": 3175, "assists": 5027, "points": 8202}, "rounds": {"1": {"picks": 27, "gp": 8420, "goals": 1982, "assists": 3405, "points": 5387}, "2": {"picks": 26, "gp": 3240, "goals": 702, "assists": 859, "points": 1561}, "3": {"picks": 30, "gp": 1326, "goals": 85, "assists": 141, "points": 226}, "4": {"picks": 22, "gp": 1309, "goals": 134, "assists": 211, "points": 345}, "5": {"picks": 17, "gp": 1161, "goals": 157, "assists": 227, "points": 384}, "6": {"picks": 26, "gp": 819, "goals": 105, "assists": 161, "points": 266}, "7": {"picks": 22, "gp": 160, "goals": 10, "assists": 23, "points": 33}}}, {"team": "Colorado Avalanche", "total": {"picks": 126, "gp": 12251, "goals": 2639, "assists": 4734, "points": 7373}, "rounds": {"1": {"picks": 18, "gp": 7352, "goals": 2007, "assists": 3338, "points": 5345}, "2": {"picks": 19, "gp": 2618, "goals": 435, "assists": 782, "points": 1217}, "3": {"picks": 16, "gp": 1146, "goals": 123, "assists": 410, "points": 533}, "4": {"picks": 17, "gp": 259, "goals": 15, "assists": 20, "points": 35}, "5": {"picks": 19, "gp": 517, "goals": 34, "assists": 123, "points": 157}, "6": {"picks": 17, "gp": 330, "goals": 25, "assists": 61, "points": 86}, "7": {"picks": 20, "gp": 29, "goals": 0, "assists": 0, "points": 0}}}, {"team": "Columbus Blue Jackets", "total": {"picks": 138, "gp": 19247, "goals": 2968, "assists": 4928, "points": 7896}, "rounds": {"1": {"picks": 24, "gp": 8176, "goals": 1466, "assists": 2875, "points": 4341}, "2": {"picks": 19, "gp": 2417, "goals": 436, "assists": 521, "points": 957}, "3": {"picks": 18, "gp": 2519, "goals": 239, "assists": 346, "points": 585}, "4": {"picks": 20, "gp": 2567, "goals": 332, "assists": 518, "points": 850}, "5": {"picks": 19, "gp": 598, "goals": 98, "assists": 113, "points": 211}, "6": {"picks": 18, "gp": 1900, "goals": 324, "assists": 418, "points": 742}, "7": {"picks": 20, "gp": 1070, "goals": 73, "assists": 137, "points": 210}}}, {"team": "Dallas Stars", "total": {"picks": 127, "gp": 14516, "goals": 2457, "assists": 3898, "points": 6355}, "rounds": {"1": {"picks": 18, "gp": 5273, "goals": 722, "assists": 1233, "points": 1955}, "2": {"picks": 18, "gp": 3311, "goals": 683, "assists": 878, "points": 1561}, "3": {"picks": 15, "gp": 1907, "goals": 311, "assists": 546, "points": 857}, "4": {"picks": 19, "gp": 1295, "goals": 184, "assists": 218, "points": 402}, "5": {"picks": 29, "gp": 2331, "goals": 539, "assists": 982, "points": 1521}, "6": {"picks": 17, "gp": 246, "goals": 15, "assists": 16, "points": 31}, "7": {"picks": 11, "gp": 153, "goals": 3, "assists": 25, "points": 28}}}, {"team": "Detroit Red Wings", "total": {"picks": 163, "gp": 14622, "goals": 2311, "assists": 3568, "points": 5879}, "rounds": {"1": {"picks": 19, "gp": 5460, "goals": 966, "assists": 1517, "points": 2483}, "2": {"picks": 31, "gp": 4825, "goals": 801, "assists": 1161, "points": 1962}, "3": {"picks": 25, "gp": 1232, "goals": 126, "assists": 219, "points": 345}, "4": {"picks": 21, "gp": 1606, "goals": 356, "assists": 468, "points": 824}, "5": {"picks": 21, "gp": 1135, "goals": 26, "assists": 151, "points": 177}, "6": {"picks": 21, "gp": 157, "goals": 18, "assists": 18, "points": 36}, "7": {"picks": 25, "gp": 207, "goals": 18, "assists": 34, "points": 52}}}, {"team": "Edmonton Oilers", "total": {"picks": 130, "gp": 16263, "goals": 3051, "assists": 5596, "points": 8647}, "rounds": {"1": {"picks": 20, "gp": 10177, "goals": 2562, "assists": 4369, "points": 6931}, "2": {"picks": 14, "gp": 2383, "goals": 236, "assists": 525, "points": 761}, "3": {"picks": 18, "gp": 870, "goals": 47, "assists": 77, "points": 124}, "4": {"picks": 19, "gp": 1457, "goals": 135, "assists": 352, "points": 487}, "5": {"picks": 19, "gp": 285, "goals": 18, "assists": 51, "points": 69}, "6": {"picks": 21, "gp": 872, "goals": 51, "assists": 198, "points": 249}, "7": {"picks": 19, "gp": 219, "goals": 2, "assists": 24, "points": 26}}}, {"team": "Florida Panthers", "total": {"picks": 142, "gp": 16557, "goals": 2625, "assists": 4329, "points": 6954}, "rounds": {"1": {"picks": 17, "gp": 9045, "goals": 1551, "assists": 2696, "points": 4247}, "2": {"picks": 19, "gp": 1823, "goals": 116, "assists": 211, "points": 327}, "3": {"picks": 22, "gp": 2422, "goals": 457, "assists": 675, "points": 1132}, "4": {"picks": 25, "gp": 1009, "goals": 129, "assists": 201, "points": 330}, "5": {"picks": 16, "gp": 797, "goals": 269, "assists": 245, "points": 514}, "6": {"picks": 19, "gp": 397, "goals": 22, "assists": 32, "points": 54}, "7": {"picks": 24, "gp": 1064, "goals": 81, "assists": 269, "points": 350}}}, {"team": "Los Angeles Kings", "total": {"picks": 143, "gp": 20959, "goals": 2931, "assists": 4602, "points": 7533}, "rounds": {"1": {"picks": 17, "gp": 7748, "goals": 1233, "assists": 2086, "points": 3319}, "2": {"picks": 24, "gp": 4461, "goals": 805, "assists": 1017, "points": 1822}, "3": {"picks": 20, "gp": 2269, "goals": 252, "assists": 295, "points": 547}, "4": {"picks": 23, "gp": 2610, "goals": 239, "assists": 509, "points": 748}, "5": {"picks": 22, "gp": 1418, "goals": 132, "assists": 259, "points": 391}, "6": {"picks": 18, "gp": 140, "goals": 9, "assists": 24, "points": 33}, "7": {"picks": 19, "gp": 2313, "goals": 261, "assists": 412, "points": 673}}}, {"team": "Minnesota Wild", "total": {"picks": 128, "gp": 15253, "goals": 2274, "assists": 3643, "points": 5917}, "rounds": {"1": {"picks": 20, "gp": 6854, "goals": 1112, "assists": 2104, "points": 3216}, "2": {"picks": 20, "gp": 2836, "goals": 423, "assists": 577, "points": 1000}, "3": {"picks": 13, "gp": 1858, "goals": 228, "assists": 276, "points": 504}, "4": {"picks": 19, "gp": 878, "goals": 44, "assists": 81, "points": 125}, "5": {"picks": 18, "gp": 1319, "goals": 279, "assists": 370, "points": 649}, "6": {"picks": 20, "gp": 567, "goals": 7, "assists": 21, "points": 28}, "7": {"picks": 18, "gp": 941, "goals": 181, "assists": 214, "points": 395}}}, {"team": "Montreal Canadiens", "total": {"picks": 156, "gp": 12929, "goals": 1962, "assists": 3410, "points": 5372}, "rounds": {"1": {"picks": 21, "gp": 6529, "goals": 1125, "assists": 1949, "points": 3074}, "2": {"picks": 22, "gp": 2735, "goals": 372, "assists": 812, "points": 1184}, "3": {"picks": 27, "gp": 1378, "goals": 104, "assists": 186, "points": 290}, "4": {"picks": 22, "gp": 262, "goals": 6, "assists": 41, "points": 47}, "5": {"picks": 27, "gp": 1255, "goals": 271, "assists": 283, "points": 554}, "6": {"picks": 16, "gp": 209, "goals": 15, "assists": 23, "points": 38}, "7": {"picks": 21, "gp": 561, "goals": 69, "assists": 116, "points": 185}}}, {"team": "Nashville Predators", "total": {"picks": 148, "gp": 15539, "goals": 2191, "assists": 3967, "points": 6158}, "rounds": {"1": {"picks": 20, "gp": 4917, "goals": 789, "assists": 1402, "points": 2191}, "2": {"picks": 22, "gp": 4016, "goals": 540, "assists": 1197, "points": 1737}, "3": {"picks": 22, "gp": 1492, "goals": 221, "assists": 295, "points": 516}, "4": {"picks": 28, "gp": 3673, "goals": 563, "assists": 910, "points": 1473}, "5": {"picks": 17, "gp": 916, "goals": 53, "assists": 95, "points": 148}, "6": {"picks": 19, "gp": 236, "goals": 3, "assists": 29, "points": 32}, "7": {"picks": 20, "gp": 289, "goals": 22, "assists": 39, "points": 61}}}, {"team": "New Jersey Devils", "total": {"picks": 144, "gp": 13926, "goals": 2187, "assists": 3471, "points": 5658}, "rounds": {"1": {"picks": 18, "gp": 4839, "goals": 832, "assists": 1470, "points": 2302}, "2": {"picks": 18, "gp": 3041, "goals": 224, "assists": 538, "points": 762}, "3": {"picks": 25, "gp": 2724, "goals": 555, "assists": 578, "points": 1133}, "4": {"picks": 24, "gp": 1207, "goals": 159, "assists": 182, "points": 341}, "5": {"picks": 20, "gp": 1331, "goals": 238, "assists": 337, "points": 575}, "6": {"picks": 23, "gp": 701, "goals": 178, "assists": 354, "points": 532}, "7": {"picks": 16, "gp": 83, "goals": 1, "assists": 12, "points": 13}}}, {"team": "New York Islanders", "total": {"picks": 140, "gp": 19600, "goals": 3216, "assists": 5401, "points": 8617}, "rounds": {"1": {"picks": 21, "gp": 10342, "goals": 2299, "assists": 3564, "points": 5863}, "2": {"picks": 18, "gp": 2120, "goals": 117, "assists": 349, "points": 466}, "3": {"picks": 21, "gp": 1138, "goals": 31, "assists": 157, "points": 188}, "4": {"picks": 23, "gp": 1916, "goals": 202, "assists": 469, "points": 671}, "5": {"picks": 20, "gp": 1240, "goals": 93, "assists": 137, "points": 230}, "6": {"picks": 20, "gp": 2639, "goals": 469, "assists": 708, "points": 1177}, "7": {"picks": 17, "gp": 205, "goals": 5, "assists": 17, "points": 22}}}, {"team": "New York Rangers", "total": {"picks": 133, "gp": 13389, "goals": 2335, "assists": 3545, "points": 5880}, "rounds": {"1": {"picks": 18, "gp": 6182, "goals": 1157, "assists": 1816, "points": 2973}, "2": {"picks": 14, "gp": 2102, "goals": 430, "assists": 609, "points": 1039}, "3": {"picks": 23, "gp": 1576, "goals": 376, "assists": 519, "points": 895}, "4": {"picks": 21, "gp": 1375, "goals": 97, "assists": 175, "points": 272}, "5": {"picks": 24, "gp": 232, "goals": 18, "assists": 29, "points": 47}, "6": {"picks": 20, "gp": 1921, "goals": 257, "assists": 397, "points": 654}, "7": {"picks": 13, "gp": 1, "goals": 0, "assists": 0, "points": 0}}}, {"team": "Ottawa Senators", "total": {"picks": 133, "gp": 18949, "goals": 3192, "assists": 5308, "points": 8500}, "rounds": {"1": {"picks": 22, "gp": 8735, "goals": 1614, "assists": 3047, "points": 4661}, "2": {"picks": 20, "gp": 2631, "goals": 325, "assists": 457, "points": 782}, "3": {"picks": 14, "gp": 1201, "goals": 111, "assists": 153, "points": 264}, "4": {"picks": 24, "gp": 2623, "goals": 446, "assists": 651, "points": 1097}, "5": {"picks": 18, "gp": 1862, "goals": 292, "assists": 375, "points": 667}, "6": {"picks": 15, "gp": 940, "goals": 277, "assists": 460, "points": 737}, "7": {"picks": 20, "gp": 957, "goals": 127, "assists": 165, "points": 292}}}, {"team": "Philadelphia Flyers", "total": {"picks": 145, "gp": 15193, "goals": 2520, "assists": 4211, "points": 6731}, "rounds": {"1": {"picks": 22, "gp": 8892, "goals": 1873, "assists": 3032, "points": 4905}, "2": {"picks": 22, "gp": 1683, "goals": 119, "assists": 214, "points": 333}, "3": {"picks": 20, "gp": 1958, "goals": 227, "assists": 521, "points": 748}, "4": {"picks": 19, "gp": 288, "goals": 14, "assists": 27, "points": 41}, "5": {"picks": 19, "gp": 908, "goals": 126, "assists": 161, "points": 287}, "6": {"picks": 23, "gp": 1391, "goals": 155, "assists": 250, "points": 405}, "7": {"picks": 20, "gp": 73, "goals": 6, "assists": 6, "points": 12}}}, {"team": "Phoenix Coyotes", "total": {"picks": 56, "gp": 7435, "goals": 955, "assists": 1828, "points": 2783}, "rounds": {"1": {"picks": 12, "gp": 4802, "goals": 718, "assists": 1432, "points": 2150}, "2": {"picks": 10, "gp": 1227, "goals": 161, "assists": 212, "points": 373}, "3": {"picks": 7, "gp": 552, "goals": 41, "assists": 104, "points": 145}, "4": {"picks": 6, "gp": 50, "goals": 4, "assists": 3, "points": 7}, "5": {"picks": 8, "gp": 578, "goals": 17, "assists": 68, "points": 85}, "6": {"picks": 6, "gp": 126, "goals": 0, "assists": 0, "points": 0}, "7": {"picks": 7, "gp": 100, "goals": 14, "assists": 9, "points": 23}}}, {"team": "Pittsburgh Penguins", "total": {"picks": 120, "gp": 11122, "goals": 1580, "assists": 2521, "points": 4101}, "rounds": {"1": {"picks": 14, "gp": 3680, "goals": 525, "assists": 904, "points": 1429}, "2": {"picks": 17, "gp": 1840, "goals": 167, "assists": 293, "points": 460}, "3": {"picks": 16, "gp": 2999, "goals": 632, "assists": 823, "points": 1455}, "4": {"picks": 14, "gp": 657, "goals": 64, "assists": 93, "points": 157}, "5": {"picks": 22, "gp": 1251, "goals": 102, "assists": 307, "points": 409}, "6": {"picks": 20, "gp": 436, "goals": 63, "assists": 53, "points": 116}, "7": {"picks": 17, "gp": 259, "goals": 27, "assists": 48, "points": 75}}}, {"team": "San Jose Sharks", "total": {"picks": 145, "gp": 14276, "goals": 2354, "assists": 3544, "points": 5898}, "rounds": {"1": {"picks": 19, "gp": 4904, "goals": 1352, "assists": 1742, "points": 3094}, "2": {"picks": 22, "gp": 2781, "goals": 342, "assists": 526, "points": 868}, "3": {"picks": 15, "gp": 125, "goals": 20, "assists": 26, "points": 46}, "4": {"picks": 19, "gp": 452, "goals": 54, "assists": 49, "points": 103}, "5": {"picks": 22, "gp": 1072, "goals": 114, "assists": 156, "points": 270}, "6": {"picks": 19, "gp": 2672, "goals": 336, "assists": 619, "points": 955}, "7": {"picks": 29, "gp": 2270, "goals": 136, "assists": 426, "points": 562}}}, {"team": "Seattle Kraken", "total": {"picks": 42, "gp": 926, "goals": 152, "assists": 230, "points": 382}, "rounds": {"1": {"picks": 5, "gp": 566, "goals": 125, "assists": 166, "points": 291}, "2": {"picks": 11, "gp": 233, "goals": 21, "assists": 45, "points": 66}, "3": {"picks": 7, "gp": 89, "goals": 4, "assists": 15, "points": 19}, "4": {"picks": 5, "gp": 1, "goals": 0, "assists": 1, "points": 1}, "5": {"picks": 4, "gp": 37, "goals": 2, "assists": 3, "points": 5}, "6": {"picks": 4, "gp": 0, "goals": 0, "assists": 0, "points": 0}, "7": {"picks": 6, "gp": 0, "goals": 0, "assists": 0, "points": 0}}}, {"team": "St. Louis Blues", "total": {"picks": 141, "gp": 18842, "goals": 3009, "assists": 4951, "points": 7960}, "rounds": {"1": {"picks": 23, "gp": 10528, "goals": 2167, "assists": 3357, "points": 5524}, "2": {"picks": 22, "gp": 4151, "goals": 559, "assists": 957, "points": 1516}, "3": {"picks": 21, "gp": 1960, "goals": 167, "assists": 404, "points": 571}, "4": {"picks": 21, "gp": 1065, "goals": 51, "assists": 83, "points": 134}, "5": {"picks": 19, "gp": 504, "goals": 21, "assists": 67, "points": 88}, "6": {"picks": 17, "gp": 475, "goals": 36, "assists": 61, "points": 97}, "7": {"picks": 18, "gp": 159, "goals": 8, "assists": 22, "points": 30}}}, {"team": "Tampa Bay Lightning", "total": {"picks": 144, "gp": 16846, "goals": 3209, "assists": 5177, "points": 8386}, "rounds": {"1": {"picks": 14, "gp": 6489, "goals": 1306, "assists": 2227, "points": 3533}, "2": {"picks": 19, "gp": 2982, "goals": 649, "assists": 1052, "points": 1701}, "3": {"picks": 19, "gp": 3399, "goals": 767, "assists": 1064, "points": 1831}, "4": {"picks": 19, "gp": 1530, "goals": 207, "assists": 249, "points": 456}, "5": {"picks": 14, "gp": 268, "goals": 9, "assists": 31, "points": 40}, "6": {"picks": 23, "gp": 1056, "goals": 65, "assists": 159, "points": 224}, "7": {"picks": 36, "gp": 1122, "goals": 206, "assists": 395, "points": 601}}}, {"team": "Toronto Maple Leafs", "total": {"picks": 140, "gp": 16026, "goals": 2833, "assists": 4406, "points": 7239}, "rounds": {"1": {"picks": 15, "gp": 6707, "goals": 1590, "assists": 2701, "points": 4291}, "2": {"picks": 17, "gp": 2575, "goals": 409, "assists": 558, "points": 967}, "3": {"picks": 17, "gp": 1118, "goals": 235, "assists": 255, "points": 490}, "4": {"picks": 20, "gp": 1064, "goals": 30, "assists": 56, "points": 86}, "5": {"picks": 25, "gp": 1285, "goals": 119, "assists": 169, "points": 288}, "6": {"picks": 23, "gp": 1951, "goals": 307, "assists": 417, "points": 724}, "7": {"picks": 23, "gp": 1326, "goals": 143, "assists": 250, "points": 393}}}, {"team": "Utah Hockey Club", "total": {"picks": 18, "gp": 0, "goals": 0, "assists": 0, "points": 0}, "rounds": {"1": {"picks": 3, "gp": 0, "goals": 0, "assists": 0, "points": 0}, "2": {"picks": 2, "gp": 0, "goals": 0, "assists": 0, "points": 0}, "3": {"picks": 3, "gp": 0, "goals": 0, "assists": 0, "points": 0}, "4": {"picks": 3, "gp": 0, "goals": 0, "assists": 0, "points": 0}, "5": {"picks": 3, "gp": 0, "goals": 0, "assists": 0, "points": 0}, "6": {"picks": 4, "gp": 0, "goals": 0, "assists": 0, "points": 0}, "7": {"picks": 0, "gp": 0, "goals": 0, "assists": 0, "points": 0}}}, {"team": "Vancouver Canucks", "total": {"picks": 126, "gp": 8691, "goals": 1660, "assists": 2394, "points": 4054}, "rounds": {"1": {"picks": 18, "gp": 5444, "goals": 1385, "assists": 1880, "points": 3265}, "2": {"picks": 11, "gp": 805, "goals": 72, "assists": 84, "points": 156}, "3": {"picks": 16, "gp": 669, "goals": 38, "assists": 78, "points": 116}, "4": {"picks": 14, "gp": 56, "goals": 3, "assists": 4, "points": 7}, "5": {"picks": 20, "gp": 1575, "goals": 155, "assists": 333, "points": 488}, "6": {"picks": 26, "gp": 67, "goals": 1, "assists": 3, "points": 4}, "7": {"picks": 21, "gp": 75, "goals": 6, "assists": 12, "points": 18}}}, {"team": "Vegas Golden Knights", "total": {"picks": 58, "gp": 2911, "goals": 447, "assists": 754, "points": 1201}, "rounds": {"1": {"picks": 8, "gp": 1567, "goals": 275, "assists": 539, "points": 814}, "2": {"picks": 7, "gp": 658, "goals": 29, "assists": 112, "points": 141}, "3": {"picks": 10, "gp": 313, "goals": 95, "assists": 66, "points": 161}, "4": {"picks": 7, "gp": 296, "goals": 47, "assists": 35, "points": 82}, "5": {"picks": 9, "gp": 0, "goals": 0, "assists": 0, "points": 0}, "6": {"picks": 11, "gp": 9, "goals": 0, "assists": 0, "points": 0}, "7": {"picks": 6, "gp": 68, "goals": 1, "assists": 2, "points": 3}}}, {"team": "Washington Capitals", "total": {"picks": 129, "gp": 16953, "goals": 2560, "assists": 4967, "points": 7527}, "rounds": {"1": {"picks": 20, "gp": 9216, "goals": 1791, "assists": 3437, "points": 5228}, "2": {"picks": 21, "gp": 3013, "goals": 198, "assists": 572, "points": 770}, "3": {"picks": 14, "gp": 1983, "goals": 331, "assists": 542, "points": 873}, "4": {"picks": 16, "gp": 931, "goals": 0, "assists": 23, "points": 23}, "5": {"picks": 19, "gp": 606, "goals": 42, "assists": 80, "points": 122}, "6": {"picks": 21, "gp": 1030, "goals": 190, "assists": 280, "points": 470}, "7": {"picks": 18, "gp": 174, "goals": 8, "assists": 33, "points": 41}}}, {"team": "Winnipeg Jets", "total": {"picks": 92, "gp": 10396, "goals": 1937, "assists": 3096, "points": 5033}, "rounds": {"1": {"picks": 16, "gp": 5948, "goals": 1554, "assists": 2375, "points": 3929}, "2": {"picks": 11, "gp": 1057, "goals": 45, "assists": 131, "points": 176}, "3": {"picks": 14, "gp": 1140, "goals": 138, "assists": 218, "points": 356}, "4": {"picks": 11, "gp": 797, "goals": 123, "assists": 220, "points": 343}, "5": {"picks": 16, "gp": 921, "goals": 12, "assists": 49, "points": 61}, "6": {"picks": 11, "gp": 466, "goals": 63, "assists": 89, "points": 152}, "7": {"picks": 13, "gp": 67, "goals": 2, "assists": 14, "points": 16}}}], "metrics": ["points", "goals", "assists", "gp"], "metricLabels": {"points": "Points", "goals": "Goals", "assists": "Assists", "gp": "Games Played"}};
+const ROUND_COLORS = ["#4ea1ff","#46c98b","#f2c14e","#ef7d57","#b06bd6",
+                      "#34c3c9","#9aa6b2"];
+const $ = s => document.querySelector(s);
+
+// metric dropdown
+const msel = $("#metric");
+DATA.metrics.forEach(m => {
+  const o = document.createElement("option");
+  o.value = m; o.textContent = DATA.metricLabels[m]; msel.appendChild(o);
+});
+msel.value = "points";
+
+let view = "total";      // total | stack
+let metric = "points";
+let roundFilter = "all";
+let sortKey = "points";
+let chart;
+
+function valueFor(t) {
+  if (roundFilter === "all") return t.total[metric];
+  return t.rounds[roundFilter][metric];
+}
+function rowStat(t, k) {
+  if (roundFilter === "all") return t.total[k];
+  return t.rounds[roundFilter][k];
+}
+
+function renderChart() {
+  const labels = [], teams = DATA.teams.slice();
+  const stacked = (view === "stack" && roundFilter === "all");
+
+  teams.sort((a, b) => valueFor(b) - valueFor(a));
+  teams.forEach(t => labels.push(t.team));
+
+  let datasets;
+  if (stacked) {
+    datasets = [];
+    for (let r = 1; r <= 7; r++) {
+      datasets.push({
+        label: "Round " + r,
+        data: teams.map(t => t.rounds[String(r)][metric]),
+        backgroundColor: ROUND_COLORS[r - 1],
+        borderWidth: 0,
+      });
+    }
+  } else {
+    datasets = [{
+      label: DATA.metricLabels[metric],
+      data: teams.map(t => valueFor(t)),
+      backgroundColor: "#4ea1ff",
+      borderWidth: 0,
+    }];
+  }
+
+  const cfg = {
+    type: "bar",
+    data: { labels, datasets },
+    options: {
+      indexAxis: "y",
+      maintainAspectRatio: false,
+      responsive: true,
+      scales: {
+        x: { stacked, grid: { color: "#222b33" }, ticks: { color: "#8a97a6" } },
+        y: { stacked, grid: { display: false }, ticks: { color: "#cdd6df", font: { size: 12 } } },
+      },
+      plugins: {
+        legend: { display: stacked, labels: { color: "#cdd6df" } },
+        title: {
+          display: true, color: "#e8edf2", font: { size: 15 },
+          text: DATA.metricLabels[metric]
+                + (roundFilter === "all" ? " by team, all rounds"
+                                         : " by team, round " + roundFilter)
+                + (stacked ? " (stacked by round)" : ""),
+        },
+      },
+    },
+  };
+  if (chart) chart.destroy();
+  chart = new Chart($("#chart"), cfg);
+}
+
+function renderTable() {
+  const tb = $("#tbl tbody");
+  tb.innerHTML = "";
+  const teams = DATA.teams.slice().sort((a, b) =>
+    sortKey === "team" ? a.team.localeCompare(b.team)
+                       : rowStat(b, sortKey) - rowStat(a, sortKey));
+  teams.forEach(t => {
+    const tr = document.createElement("tr");
+    const cells = [t.team, rowStat(t, "picks"), rowStat(t, "gp"),
+                   rowStat(t, "goals"), rowStat(t, "assists"), rowStat(t, "points")];
+    cells.forEach((c, i) => {
+      const td = document.createElement("td");
+      if (i > 0) td.className = "num";
+      td.textContent = i === 0 ? c : c.toLocaleString();
+      tr.appendChild(td);
+    });
+    tb.appendChild(tr);
+  });
+  $("#tableNote").textContent =
+    roundFilter === "all" ? "(all rounds)" : "(round " + roundFilter + " only)";
+  document.querySelectorAll("#tbl th").forEach(th =>
+    th.classList.toggle("sorted", th.dataset.k === sortKey));
+}
+
+function renderAll() { renderChart(); renderTable(); }
+
+msel.addEventListener("change", e => { metric = e.target.value; renderChart(); });
+$("#round").addEventListener("change", e => { roundFilter = e.target.value; renderAll(); });
+$("#vTotal").addEventListener("click", () => {
+  view = "total"; $("#vTotal").classList.add("on"); $("#vStack").classList.remove("on"); renderChart();
+});
+$("#vStack").addEventListener("click", () => {
+  view = "stack"; $("#vStack").classList.add("on"); $("#vTotal").classList.remove("on"); renderChart();
+});
+document.querySelectorAll("#tbl th").forEach(th =>
+  th.addEventListener("click", () => { sortKey = th.dataset.k; renderTable(); }));
+
+renderAll();
+</script>
+</body>
+</html>
